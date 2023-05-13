@@ -90,10 +90,13 @@ class SimpleSwitch13(app_manager.RyuApp):
                 in_port = msg.match['in_port']
                 if in_port == 1:
                     out_port = 2
-                    self.logger.info("packet sent out of port 2 dpid 1 ")
-                    actions = [parser.OFPActionOutput(out_port)]
+                   
+                    
                 else:
                     return
+                self.logger.info("packet sent out of port 2 dpid 1 ")
+                actions =[parser.OFPActionPushMpls(ethertype=34887,type_=None, len_=None),parser.OFPActionSetField(mpls_label=self.label),parser.OFPActionOutput(out_port)]
+            
                 data = msg
                 out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
@@ -102,10 +105,12 @@ class SimpleSwitch13(app_manager.RyuApp):
                 in_port = msg.match['in_port']
                 if in_port == 2:
                     out_port = 2
-                    self.logger.info("packet sent out of port 2  dpid 2 %s", out_port)
-                    actions = [parser.OFPActionOutput(out_port)]
+                    
+                    
                 else:
                     return
+                self.logger.info("packet sent out of port 2  dpid 2 %s", out_port)
+                actions = [parser.OFPActionPopMpls(), parser.OFPActionPushMpls(), parser.OFPActionSetField(mpls_label=self.label), parser.OFPActionOutput(out_port)]
                 data = msg
                 out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
@@ -120,19 +125,20 @@ class SimpleSwitch13(app_manager.RyuApp):
                 in_port = msg.match['in_port']
                 if in_port == 2:
                     out_port = 3
-                    self.logger.info("packet sent out of port 3 dpid 4 %s", out_port)
-                    actions = [parser.OFPActionOutput(out_port)]
+                    
                 else:
                     return
+                self.logger.info("packet sent out of port 3 dpid 4 %s", out_port)
+                actions = [parser.OFPActionPopMpls(), parser.OFPActionOutput(out_port)]
                 data = msg
                 out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=data)
-                datapath.send_msg(out)# Rest of the code...
+                datapath.send_msg(out)
 
         else:
             out_port = ofproto.OFPP_FLOOD
 
-        actions = [parser.OFPActionOutput(out_port)]
+        
         if out_port != ofproto.OFPP_FLOOD:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
             # verify if we have a valid buffer_id, if yes avoid to send both
@@ -146,9 +152,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         if msg.buffer_id == ofproto.OFP_NO_BUFFER:
             data = msg.data
 
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                  in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)
+        
     @set_ev_cls(event.EventSwitchEnter)
     def get_topology_data(self, ev):
         switch_list = get_switch(self.topology_api_app, None)
