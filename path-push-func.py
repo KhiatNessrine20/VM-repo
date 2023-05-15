@@ -93,17 +93,55 @@ class SimpleSwitch13(app_manager.RyuApp):
         dpid = format(datapath.id, "d").zfill(16)
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
-       
+        dst = eth.dst
+        src = eth.src
+        ethtype = eth.ethertype
+        match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_type=ethtype)
         self.label = self.label + 1
-        self.logger.info("Flow actions: push MPLS=%s, out_port=%s", self.label, out_port)
+        self.logger.info("Flow actions: push MPLS=%s, out_port=%s, dst=%s ", self.label, out_port, dst)
         actions = []
         actions.append(parser.OFPActionPushMpls(ethertype=34887,type_=None, len_=None))
         actions.append(parser.OFPActionSetField(mpls_label=self.label))
-        actions.append(parser.OFPActionOutput(out_port))
         
-      
-        return actions
-     
+        return
+    def swap_mpls(self, ev, out_port):
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        in_port = msg.match['in_port']
+        dpid = format(datapath.id, "d").zfill(16)
+        pkt = packet.Packet(msg.data)
+        eth = pkt.get_protocols(ethernet.ethernet)[0]
+        mpls_proto = pkt.get_protocol(mpls.mpls)
+        
+            # Switch labels 
+        if dpid == 2 : 
+            self.label = self.label + 1
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_type=ethtype, mpls_label=mpls_proto.label)
+                
+            self.logger.info("Flow actions: switchMPLS=%s, out_port=%s", self.label, out_port)
+            actions = []
+            actions.append(parser.OFPActionPopMpls())
+            actions.append(parser.OFPActionPushMpls())
+            actions.append (parser.OFPActionSetField(mpls_label=self.label))
+        elif dpid == 3:
+
+            self.label = self.label + 1
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_type=ethtype, mpls_label=mpls_proto.label)
+                
+            self.logger.info("Flow actions: switchMPLS=%s, out_port=%s", self.label, out_port)
+            actions = []
+            actions.append(parser.OFPActionPopMpls())
+            actions.append(parser.OFPActionPushMpls())
+            actions.append (parser.OFPActionSetField(mpls_label=self.label))
+        else:
+            self.logger.info("Flow actions: Pop MPLS=%s, out_port=%s", self.label, out_port)
+            actions = []
+            actions.append(parser.OFPActionPopMpls())
+            actions.append (parser.OFPActionOutput(out_port))
+
+
  
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -126,7 +164,7 @@ class SimpleSwitch13(app_manager.RyuApp):
             return
         dst = eth.dst
         src = eth.src
-
+        ethtype = eth.ethertype 
         dpid = format(datapath.id, "d").zfill(16)
         self.mac_to_port.setdefault(dpid, {})
 
@@ -134,18 +172,18 @@ class SimpleSwitch13(app_manager.RyuApp):
         if  out_port is not None:
             
             out_port =out_port
-            
-
+           
         else: 
             out_port = ofproto.OFPP_FLOOD
-        
-        actions=self.push_mpls(ev, out_port)
-        
-   
+     
+        if ethtype == 2048:
+            self.push_mpls(ev, out_port)
+        elif ethtype == 34887:
+            self.swap_mpls(ev, out_port)
+        actions = [parser.OFPActionOutput(out_port)]
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
                                   in_port=in_port, actions=actions, data=msg.data)
-        datapath.send_msg(out)# Rest of the code...     
-
+        datapath.send_msg(out)
         
 
     @set_ev_cls(event.EventSwitchEnter)
