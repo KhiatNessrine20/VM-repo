@@ -20,8 +20,9 @@ class SimpleSwitch13(app_manager.RyuApp):
         self.links = {}
         self.switches = {}
         self.switch_ports = {}
-        self.topology_api_app= self
-        self.path =[]
+        self.topology_api_app= self    
+        self.label = 16
+      
         
         
 
@@ -77,11 +78,83 @@ class SimpleSwitch13(app_manager.RyuApp):
             next=path[path.index(dpid)+1] #get next hop
             out_port=self.net[dpid][next]['port'] #get output port
             
-            self.path = path
+            
             print ('---the path is :----')
-            print (self.path)
-            return out_port, self.path
+            print (path)
+            return out_port, path
+        return None, None
+
+
+
+
+
+    def mpls_handler(self, ev):
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        in_port = msg.match['in_port']
+        dpid = datapath.id
+        pkt = packet.Packet(msg.data)
+        eth = pkt.get_protocols(ethernet.ethernet)[0]
+        out_port =self.get_path(ev)
+        if  out_port is not None:
+            
+            out_port =out_port
+       
+            if dpid == 1:
+                self.label = self.label + 1
+        
+                self.logger.info("Flow match: in_port=%s, dst=%s, type=IP", in_port, eth.dst)
+                self.logger.info("Flow actions: pushMPLS=%s, out_port=%s", self.label, out_port)
+
+                actions =[parser.OFPActionPushMpls(ethertype=34887,type_=None, len_=None),parser.OFPActionSetField(mpls_label=self.label), parser.OFPActionOutput(out_port)]
+                self.send_packet_out(out_port, ev)
+            elif dpid == 2 or dpid ==3:
+                self.label = self.label + 1
+                self.logger.info("Flow actions: switchMPLS=%s, out_port=%s", self.label, out_port)
+                actions = [parser.OFPActionPopMpls(), parser.OFPActionPushMpls(), parser.OFPActionSetField(mpls_label=self.label), parser.OFPActionOutput(out_port)]
+                self.send_packet_out(out_port, ev)
+            elif dpid == 4:
+                self.logger.info("Flow actions: popMPLS, out_port=%s", out_port)
+                actions = [parser.OFPActionPopMpls(), parser.OFPActionOutput(out_port)]
+                self.send_packet_out(out_port, ev)
+        return 
+        
+
+
+    def send_packet_out(self,out_port, ev):
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        in_port = msg.match['in_port']
+        data = msg.data
+        pkt = packet.Packet(msg.data)
+        eth = pkt.get_protocols(ethernet.ethernet)[0]
+        dst = eth.dst
+        src = eth.src
+        
+        
       
+   
+        actions=[parser.OFPActionOutput(out_port)]
+        if out_port != ofproto.OFPP_FLOOD:
+            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+            # verify if we have a valid buffer_id, if yes avoid to send both
+            # flow_mod & packet_out
+            if msg.buffer_id != ofproto.OFP_NO_BUFFER:
+                self.add_flow(datapath, 1, match, actions, msg.buffer_id)
+                return
+            else:
+                self.add_flow(datapath, 1, match, actions)
+        data = None
+        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
+            data = msg.data
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
+                                  in_port=in_port, actions=actions, data=data)
+        datapath.send_msg(out)# Rest of the code...
+ 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
             # If you hit this you might want to increase
@@ -117,26 +190,9 @@ class SimpleSwitch13(app_manager.RyuApp):
       
             
         
-        self.get_path(ev)
-        actions = [parser.OFPActionOutput(out_port)]
-
-        # install a flow to avoid packet_in next time
-        if out_port != ofproto.OFPP_FLOOD:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
-            # verify if we have a valid buffer_id, if yes avoid to send both
-            # flow_mod & packet_out
-            if msg.buffer_id != ofproto.OFP_NO_BUFFER:
-                self.add_flow(datapath, 1, match, actions, msg.buffer_id)
-                return
-            else:
-                self.add_flow(datapath, 1, match, actions)
-        data = None
-        if msg.buffer_id == ofproto.OFP_NO_BUFFER:
-            data = msg.data
-
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,
-                                  in_port=in_port, actions=actions, data=data)
-        datapath.send_msg(out)# Rest of the code...
+        out_port, path= self.get_path(ev)
+        self.mpls_handler(ev)
+        
 
     @set_ev_cls(event.EventSwitchEnter)
     def get_topology_data(self, ev):
