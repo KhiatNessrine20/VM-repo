@@ -16,7 +16,7 @@ from itertools import permutations
 from collections import defaultdict
 import time
 from operator import attrgetter
-
+import csv
 
 class MplsController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -51,6 +51,7 @@ class MplsController(app_manager.RyuApp):
         self.prev_time = {}
         self.label = 16
         self.TTL = 64
+       
 
     @set_ev_cls(ofp_event.EventOFPStateChange,[MAIN_DISPATCHER, DEAD_DISPATCHER])
     def _state_change_handler(self, ev):
@@ -67,7 +68,7 @@ class MplsController(app_manager.RyuApp):
         while True:
             for dp in self.datapaths.values():
                 self._request_stats(dp)
-            hub.sleep(10)
+            hub.sleep(3)
 
     
     def _request_stats(self, datapath):
@@ -87,17 +88,30 @@ class MplsController(app_manager.RyuApp):
 
         req = parser.OFPFlowStatsRequest(datapath)
         datapath.send_msg(req)
+    #def config_meter(self, datapath):
+        #ofproto = datapath.ofproto
+        #parser = datapath.ofproto_parser
+        #rate = 500 #500M
+        #burst= 5 #10M
+        #bands =[parser.OFPMeterBandDrop(type_=ofproto.OFPMBT_DROP, len_=0, rate=rate, burst_size = burst)]
+       # meter_mod = parser.OFPMeterMod(datapath=datapath, command=ofproto.OFPMC_ADD, flags=ofproto.OFPMF_KBPS, meter_id=1, bands= bands  )     
+     
+       
+        
+       # datapath.send_msg(meter_mod) 
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
+       
 
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
+        #self.config_meter(datapath)
 
     def add_flow(self, datapath, priority, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
@@ -137,11 +151,14 @@ class MplsController(app_manager.RyuApp):
          
 
         pkt_mpls.serialize()
-        data=pkt_mpls.data
-        actions = [parser.OFPActionOutput(out_port)]
-       
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=pkt_mpls.data)
+        data=msg.data
+        #actions = [parser.OFPActionOutput(out_port)]
+        actions = [ parser.OFPActionPushMpls(ethertype=ether_types.ETH_TYPE_MPLS ),parser.OFPActionSetField(mpls_label=self.label),parser.OFPActionOutput(3)]
+        
+
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions,data=data)
         datapath.send_msg(out)
+        
         self.add_flow(datapath, 1, match, actions)
        
         
@@ -171,11 +188,13 @@ class MplsController(app_manager.RyuApp):
       
         pkt_mpls.serialize()
        
-        data=pkt_mpls.data
+        data=msg.data
         
         
-        actions = [parser.OFPActionOutput(2)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=pkt_mpls.data)
+        #actions = [parser.OFPActionOutput(2)]
+        actions = [parser.OFPActionPopMpls(), parser.OFPActionPushMpls(ethertype=ether_types.ETH_TYPE_MPLS),parser.OFPActionSetField(mpls_label=self.label), parser.OFPActionOutput(2)]
+        
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data= msg.data)
         datapath.send_msg(out)
         self.add_flow(datapath, 1, match, actions)
         
@@ -200,19 +219,11 @@ class MplsController(app_manager.RyuApp):
         else:
             match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_type=ethtype)
         self.logger.info("Flow actions:  Pop MPLS=%s, out_port=%s, dst=%s , dpid=%s", self.label, out_port, dst, dpid)
-        ip_header= ipv4.ipv4(dst='10.0.0.2', src='10.0.0.1')
-        pkt_ipv4= packet.Packet()
-        pkt_ipv4.add_protocol(ethernet.ethernet(ethertype=2054,
-                                  dst=eth.dst,src= eth.src))
-             
-        pkt_ipv4.add_protocol(ip_header)
-      
-        pkt_ipv4.serialize()
-      
-        data=pkt_ipv4.data
-      
-        actions = [parser.OFPActionOutput(3)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=pkt_ipv4.data)
+        
+        data = msg.data
+        #actions = [parser.OFPActionOutput(3)]
+        actions = [parser.OFPActionPopMpls(),parser.OFPActionOutput(3)]
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=data)
         
         datapath.send_msg(out)
         self.add_flow(datapath, 1, match, actions)
@@ -352,6 +363,12 @@ class MplsController(app_manager.RyuApp):
             print (path)
             return out_port
         return None
+
+
+    csv_file = 'speed_data_metred-kbs-Final-without-meter.csv'
+    with open (csv_file,'w', newline= '') as file:
+        writer =csv.writer(file)
+        writer.writerow(['flowKey','Speed'])
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
         body = ev.msg.body
@@ -359,6 +376,7 @@ class MplsController(app_manager.RyuApp):
         datapath = msg.datapath
         dpid= datapath.id
         flow_data = {}
+        flow_bw={}
         self.logger.info('datapath       '
                         'in-port    eth-dst       '
                         'out-port   packets    bytes')
@@ -366,18 +384,26 @@ class MplsController(app_manager.RyuApp):
                          '-------- ----------------- '
                          '-------- -------- --------')
         for stat in sorted([flow for flow in body if flow.priority == 1],key=lambda flow: (flow.match['in_port'], flow.match['eth_dst'])):
-            self.logger.info('%016x %8x  %17s %8x %8d %8d', ev.msg.datapath.id, stat.match['in_port'], stat.match['eth_dst'], stat.instructions[0].actions[0].port, stat.packet_count, stat.byte_count)
-           
+            if dpid == 2 or dpid == 3:
+                out_port = stat.instructions[0].actions[3].port
+            elif dpid ==1:
+                out_port = stat.instructions[0].actions[2].port
+            elif dpid == 4:
+                out_port = stat.instructions[0].actions[1].port
+            self.logger.info('%016x %8x  %17s  %8x %8d %8d', ev.msg.datapath.id, stat.match['in_port'], stat.match['eth_dst'], out_port, stat.packet_count, stat.byte_count)
+            
+            
             in_port = stat.match['in_port']
             eth_dst = stat.match['eth_dst']
-            out_port = stat.instructions[0].actions[0].port
+            
+
         # Get the byte count and current time
             byte_count = stat.byte_count
             current_time = time.time()
         
         # Create a unique key for each flow
             flow_key = (dpid, in_port, eth_dst, out_port)
-        
+            
         # Check if the flow key exists in the dictionary
             if flow_key in flow_data:
                 prev_byte_count, prev_time = flow_data[flow_key]
@@ -391,10 +417,10 @@ class MplsController(app_manager.RyuApp):
                 flow_speed = byte_diff / time_diff
                 flow_Speed2 = max ( flow_speed, 0) #TO Avoid negqtive values
                 speed = byte_diff* 8 /time_diff
-                speed_Mbs = speed /1000
-                capacity = 1000000 #Obtenu from port speed --1G-
+                speed_Mbs = abs(speed /1000000) #speed en kbs et non ps Mbs 
+                capacity = 100 #Obtenu from port speed --1G-1Mega et non pas Gega kikif noow as 1G
                 av_bw= self._get_free_bw(capacity, flow_Speed2)
-                capacity_m = capacity /1000
+                capacity_m = capacity #*1000 #hkdq hnq kqyn 100Mega
                 if speed_Mbs < 0:
                     speed_max = max(speed_Mbs, 0)
                     diff= capacity_m - speed_max
@@ -407,32 +433,21 @@ class MplsController(app_manager.RyuApp):
                 print("Flow Speed for {flow_key}:", speed_Mbs," Mb/s")
                 #print("Available Bandwidth is:", av_bw)
                 print("Available free Bandwidth:", av_bw2 ,"M")
+                csv_file = 'speed_data_metred-kbs-Final-without-meter.csv'
+                with open(csv_file, 'a', newline='')as file:
+                    writer = csv.writer(file)
+                    writer.writerow([flow_key ,speed_Mbs])
+
+
+                #if time_diff in flow_bw:
+                 #   flow_bw[time_diff].append(speed_Mbs)
+                #else:
+                 #   flow_bw[time_diff]= [speed_Mbs]
+                #print("DIctionnqry bz- speed", flow_bw[time_diff])
         # Update the flow data in the dictionary
             flow_data[flow_key] = (byte_count, current_time)
-           # key = (stat.priority, stat.match.get('in_port'), stat.match.get('eth_dst'))
-            #value = (stat.packet_count, stat.byte_count,
-					# stat.duration_sec, stat.duration_nsec)
-            #self._save_stats(self.flow_stats[dpid], key, value, 5)
-
-            #pre = 0
-	    #period = 10
-	    #tmp = self.flow_stats[dpid][key]
-	    #if len(tmp) > 1:
-		#pre = tmp[-2][1]
-		#period = self._get_period(tmp[-1][2], tmp[-1][3], tmp[-2][2], tmp[-2][3])
-	    #speed = self._get_speed(self.flow_stats[dpid][key][-1][1], pre, period)
-		            
-            #in_port = stat.match['in_port']
-            #eth_dst = stat.match['eth_dst']
-            #out_port = stat.instructions[0].actions[0].port
-            #packet_count = stat.packet_count
-            #byte_count = stat.byte_count
             
-            #if (dpid, in_port, eth_dst) in self.prev_byte_count:
-             #   prev_byte = self.prev_byte_count[(dpid, in_port, eth_dst)]
-               # prev_t = self.prev_time[(dpid, in_port, eth_dst)]
-            
-            
+           
 
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
     def port_desc_stats_reply_handler(self, ev):
@@ -537,9 +552,11 @@ class MplsController(app_manager.RyuApp):
 
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
-
+      
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             # ignore lldp packet
+            return
+        if eth.ethertype == ether_types.ETH_TYPE_IPV6:
             return
         dst = eth.dst
         src = eth.src
@@ -548,8 +565,15 @@ class MplsController(app_manager.RyuApp):
         self.mac_to_port.setdefault(dpid, {})
         mpls_proto = pkt.get_protocol(mpls.mpls)
         out_port = self.get_path(ev)
+        if  out_port is not None:
+            
+            out_port = out_port
+            
+        else: 
+            out_port = ofproto.OFPP_FLOOD
         
-        if ethtype == 2048 and dpid == "0000000000000001":
+       
+        if ethtype == ether_types.ETH_TYPE_IP and dpid == "0000000000000001":
             self.push_mpls(ev, out_port)
         
         if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000003":
@@ -559,15 +583,11 @@ class MplsController(app_manager.RyuApp):
         if  ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000004":
             self.pop_mpls(ev, out_port)
         
-        if  out_port is not None:
-            
-            out_port = out_port
-            
-        else: 
-            out_port = ofproto.OFPP_FLOOD
+        
         data = msg.data
         actions = [parser.OFPActionOutput(out_port)]
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
         
-       
+     
+    
