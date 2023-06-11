@@ -1,0 +1,59 @@
+# -----------------------------Router 1 interfaces---------------------------------------
+curl -X POST -d '{"address":"10.0.1.2/24"}' http://localhost:8080/router/0000000000000001
+curl -X POST -d '{"address":"192.25.6.2/24"}' http://localhost:8080/router/0000000000000001
+curl -X POST -d '{"address":"192.25.5.8/24"}' http://localhost:8080/router/0000000000000001
+
+#Router 2 interfaces
+curl -X POST -d '{"address":"192.25.6.1/24"}' http://localhost:8080/router/0000000000000002
+curl -X POST -d '{"address":"192.25.7.3/24"}' http://localhost:8080/router/0000000000000002
+
+
+#Router 3
+curl -X POST -d '{"address":"192.25.5.7/24"}' http://localhost:8080/router/0000000000000003
+curl -X POST -d '{"address":"192.25.8.6/24"}' http://localhost:8080/router/0000000000000003
+
+#Router 4
+curl -X POST -d '{"address":"192.25.7.4/24"}' http://localhost:8080/router/0000000000000004
+curl -X POST -d '{"address":"192.25.8.5/24"}' http://localhost:8080/router/0000000000000004
+curl -X POST -d '{"address":"10.0.2.2/24"}' http://localhost:8080/router/0000000000000004
+
+# On eqch host
+ip route add default via 10.0.1.2 #h1
+ ip route  add default via 10.0.2.2  #h2
+
+
+#--------gatezays
+
+#Router 1 got s2 and s3
+curl -X POST -d '{"gateway":"192.25.6.1"}' http://localhost:8080/router/0000000000000001
+curl -X POST -d '{"gateway":"192.25.5.7"}' http://localhost:8080/router/0000000000000001
+
+#Router 2
+curl -X POST -d '{"gateway":"192.25.6.2"}' http://localhost:8080/router/0000000000000002
+curl -X POST -d '{"gateway":"192.25.7.4"}' http://localhost:8080/router/0000000000000002
+
+#router 3
+curl -X POST -d '{"gateway":"192.25.5.8"}' http://localhost:8080/router/0000000000000003
+curl -X POST -d '{"gateway":"192.25.8.5"}' http://localhost:8080/router/0000000000000003
+
+#router 4
+curl -X POST -d '{"gateway":"192.25.7.3"}' http://localhost:8080/router/0000000000000004
+curl -X POST -d '{"gateway":"192.25.8.6"}' http://localhost:8080/router/0000000000000004
+
+
+# ------------Static routes
+curl -X POST -d '{"destination":"10.0.2.0/24","gateway":"192.25.6.2"}' http://localhost:8080/router/0000000000000001
+curl -X POST -d '{"destination":"10.0.2.0/24","gateway":"192.25.5.7"}' http://localhost:8080/router/0000000000000001
+
+
+curl -X POST -d '{"destination":"10.0.2.0/24","gateway":"192.25.7.4"}' http://localhost:8080/router/0000000000000002
+curl -X POST -d '{"destination":"10.0.1.0/24","gateway":"192.25.6.1"}' http://localhost:8080/router/0000000000000002
+
+curl -X POST -d '{"destination":"10.0.2.0/24","gateway":"192.25.8.5"}' http://localhost:8080/router/0000000000000003
+curl -X POST -d '{"destination":"10.0.1.0/24","gateway":"192.25.5.8"}' http://localhost:8080/router/0000000000000003
+
+curl -X POST -d '{"destination":"10.0.1.0/24","gateway":"192.25.8.6"}' http://localhost:8080/router/0000000000000004
+curl -X POST -d '{"destination":"10.0.1.0/24","gateway":"192.25.7.3"}' http://localhost:8080/router/0000000000000004
+
+
+
