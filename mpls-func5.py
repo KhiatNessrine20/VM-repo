@@ -1,5 +1,5 @@
 from ryu.base import app_manager
-import traffic_monitor_func_5
+
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
 from ryu.controller.handler import set_ev_cls
@@ -16,7 +16,7 @@ from itertools import permutations
 class MplsController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
-    _CONTEXTS ={"network_monitor": traffic_monitor_func_5.TrafficMonitor}
+    
 
     def __init__(self, *args, **kwargs):
         super(MplsController, self).__init__(*args, **kwargs)
@@ -29,7 +29,7 @@ class MplsController(app_manager.RyuApp):
         self.label = 16
         self.TTL = 64
         self.paths=[]
-        self.monitor= kwargs["network_monitor"]
+        
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -106,9 +106,9 @@ class MplsController(app_manager.RyuApp):
          
 
         pkt_mpls.serialize()
-        data=pkt_mpls.data
+        data=msg.data
         actions = [ parser.OFPActionPushMpls(ethertype=ether_types.ETH_TYPE_MPLS ),parser.OFPActionSetField(mpls_label=self.label),parser.OFPActionOutput(out_port)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=pkt_mpls.data)
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=data)
         datapath.send_msg(out)
         self.add_flow(datapath, 1, match, actions)
        
@@ -139,11 +139,11 @@ class MplsController(app_manager.RyuApp):
       
         pkt_mpls.serialize()
        
-        data=pkt_mpls.data
+        data=msg.data
         
         
         actions = [parser.OFPActionPopMpls(), parser.OFPActionPushMpls(),parser.OFPActionSetField(mpls_label=self.label), parser.OFPActionOutput(out_port)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=pkt_mpls.data)
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=data)
         
         datapath.send_msg(out)
         self.add_flow(datapath, 1, match, actions)
@@ -178,10 +178,10 @@ class MplsController(app_manager.RyuApp):
       
         pkt_ipv4.serialize()
       
-        data=pkt_ipv4.data
+        data=msg.data
       
         actions = [parser.OFPActionPopMpls(),parser.OFPActionOutput(out_port)]
-        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=pkt_ipv4.data)
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=data)
         
         datapath.send_msg(out)
         self.add_flow(datapath, 1, match, actions)
@@ -217,25 +217,39 @@ class MplsController(app_manager.RyuApp):
         
         out_port = self.get_path(ev)
         
-        self.monitor.print_dict()
-        self.monitor.get_topology_data
-        
+       
         if  out_port is not None:
             
             out_port = out_port
             
         else: 
             out_port = ofproto.OFPP_FLOOD
-        if ethtype == 2048 and dpid == "0000000000000001":
-            self.push_mpls(ev, out_port)
-        
-        if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000003":
+        if dpid == "0000000000000001" and ethtype == 2048 :
+            if in_port ==1:
+                self.push_mpls(ev, out_port)
+            
+        elif dpid == "0000000000000001" and ethtype ==ether_types.ETH_TYPE_MPLS:
+            if in_port ==2 :
+                self.pop_mpls(ev, out_port)
+            elif in_port ==3:
+                self.pop_mpls(ev, out_port)
+
+        if dpid == "0000000000000003" and ethtype ==ether_types.ETH_TYPE_MPLS :
             self.swap_mpls(ev, out_port)
-        #if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000002":
-           # self.swap_mpls(ev, out_port)
-        if  ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000004":
-            self.pop_mpls(ev, out_port)
+        if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000002":
+            self.swap_mpls(ev, out_port)
         
+        #if  ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000004":
+          #  self.pop_mpls(ev, out_port)
+
+        if ethtype == 2048 and dpid == "0000000000000004":
+            if in_port == 3:
+                self.push_mpls(ev, out_port)
+        if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000004":
+            if in_port ==2:
+                self.pop_mpls(ev, out_port)
+            elif in_port ==1:
+                self.pop_mpls(ev, out_port)
         
         data = msg.data
         actions = [parser.OFPActionOutput(out_port)]

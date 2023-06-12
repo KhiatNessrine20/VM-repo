@@ -92,7 +92,7 @@ class MplsController(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
         rate = 40000 #50M
-        burst= 100 #100k
+        burst= 500 #100k
         bands =[parser.OFPMeterBandDrop(type_=ofproto.OFPMBT_DROP, len_=0, rate=rate, burst_size = burst)]
         meter_mod = parser.OFPMeterMod(datapath=datapath, command=ofproto.OFPMC_ADD, flags=ofproto.OFPMF_KBPS, meter_id=1, bands= bands  )     
      
@@ -352,7 +352,8 @@ class MplsController(app_manager.RyuApp):
         if src not in self.net: #Learn it
             self.net.add_node(src) # Add a node to the graph
             self.net.add_edge(src,dpid) # Add a link from the node to it's edge switch
-            self.net.add_edge(dpid,src,port=msg.match['in_port'])  # Add link from switch to node and make sure you are identifying the output port.
+            self.net.add_edge(dpid,src,port=msg.match['in_port'])  # Add link from switch to node and make sure you are identifying the output port.  
+        
         if dst in self.net:
             path=nx.shortest_path(self.net,src,dst) # get shortest path  
             next=path[path.index(dpid)+1] #get next hop
@@ -365,10 +366,10 @@ class MplsController(app_manager.RyuApp):
         return None
 
 
-    csv_file = 'speed_data_metred-kbs-File7-with-meter-udp.csv'
+    csv_file = 'speed_data_metred-kbs-File7-with-meter-tcp2-reel.csv'
     with open (csv_file,'w', newline= '') as file:
         writer =csv.writer(file)
-        writer.writerow(['flowKey','Speed'])
+        writer.writerow(['Time','flowKey','Speed'])
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def _flow_stats_reply_handler(self, ev):
         body = ev.msg.body
@@ -389,10 +390,17 @@ class MplsController(app_manager.RyuApp):
             
             if dpid == 2 or dpid == 3:
                 out_port = stat.instructions[0].actions[3].port
-            elif dpid ==1:
-                out_port = stat.instructions[0].actions[2].port
-            elif dpid == 4 and in_port ==2 or in_port == 1:
-                out_port = stat.instructions[0].actions[1].port
+            if dpid ==1 :
+                if in_port == 1:
+                    out_port = stat.instructions[0].actions[2].port
+                elif in_port ==2 or in_port ==3:
+                    out_port = stat.instructions[0].actions[1].port
+
+            if dpid == 4:
+                if in_port ==3:
+                    out_port = stat.instructions[0].actions[2].port
+                elif in_port == 2 or in_port == 1:
+                    out_port = stat.instructions[0].actions[1].port
             
             self.logger.info('%016x %8x  %17s  %8x %8d %8d', ev.msg.datapath.id, stat.match['in_port'], stat.match['eth_dst'], out_port, stat.packet_count, stat.byte_count)
             
@@ -435,10 +443,10 @@ class MplsController(app_manager.RyuApp):
                 print("Flow Speed for {flow_key}:", speed_Mbs," Mb/s")
                 #print("Available Bandwidth is:", av_bw)
                 print("Available free Bandwidth:", av_bw2 ,"M")
-                csv_file = 'speed_data_metred-kbs-File7-with-meter-udp.csv'
+                csv_file = 'speed_data_metred-kbs-File7-with-meter-tcp2-reel.csv'
                 with open(csv_file, 'a', newline='')as file:
                     writer = csv.writer(file)
-                    writer.writerow([flow_key ,speed_Mbs])
+                    writer.writerow([current_time, flow_key ,speed_Mbs])
 
 
                 #if time_diff in flow_bw:
@@ -574,17 +582,32 @@ class MplsController(app_manager.RyuApp):
         else: 
             out_port = ofproto.OFPP_FLOOD
         
-       
-        if ethtype == ether_types.ETH_TYPE_IP and dpid == "0000000000000001":
-            self.push_mpls(ev, out_port)
-        
-        if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000003":
+        if dpid == "0000000000000001" and ethtype == 2048 :
+            if in_port ==1:
+                self.push_mpls(ev, out_port)
+            
+        elif dpid == "0000000000000001" and ethtype ==ether_types.ETH_TYPE_MPLS:
+            if in_port ==2 :
+                self.pop_mpls(ev, out_port)
+            elif in_port ==3:
+                self.pop_mpls(ev, out_port)
+
+        if dpid == "0000000000000003" and ethtype ==ether_types.ETH_TYPE_MPLS :
             self.swap_mpls(ev, out_port)
         if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000002":
             self.swap_mpls(ev, out_port)
-        if  ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000004":
-            self.pop_mpls(ev, out_port)
         
+        #if  ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000004":
+          #  self.pop_mpls(ev, out_port)
+
+        if ethtype == 2048 and dpid == "0000000000000004":
+            if in_port == 3:
+                self.push_mpls(ev, out_port)
+        if ethtype ==ether_types.ETH_TYPE_MPLS and dpid == "0000000000000004":
+            if in_port ==2:
+                self.pop_mpls(ev, out_port)
+            elif in_port ==1:
+                self.pop_mpls(ev, out_port)
         data = msg.data
         actions = [parser.OFPActionOutput(out_port)]
         out = parser.OFPPacketOut(datapath=datapath, buffer_id=msg.buffer_id,in_port=in_port, actions=actions, data=data)
